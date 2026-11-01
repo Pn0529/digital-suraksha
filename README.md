@@ -130,6 +130,17 @@ This deployment configuration does not make the application production-certified
 
 ```bash
 npm run build
+```
+
+Start the API server in one terminal:
+
+```bash
+npm run dev:server
+```
+
+In another terminal, start the Vite preview. It forwards `/api` requests to `http://localhost:4000`, just like the development server.
+
+```bash
 npm run preview
 ```
 

@@ -206,6 +206,14 @@ const paymentChecklist: Record<Language, string[]> = {
 type UiKey = keyof typeof ui.en;
 const label = (language: Language, key: UiKey) => ui[language][key];
 
+async function readAnalysisResponse<T>(response: Response): Promise<T> {
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new Error(`The API returned an invalid response (HTTP ${response.status}). Make sure the API server is running and try again.`);
+  }
+}
+
 function PageShell({ children }: { children: ReactNode }) {
   return <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>;
 }
@@ -425,7 +433,7 @@ export function MessageAnalysisPage({ language }: { language: Language }) {
         },
         body: JSON.stringify({ message, language, saveHistory }),
       });
-      const data = await response.json() as { result?: AnalysisResult; error?: string };
+      const data = await readAnalysisResponse<{ result?: AnalysisResult; error?: string }>(response);
       if (!response.ok || !data.result) throw new Error(data.error ?? label(language, 'error'));
       setResult(data.result);
     } catch (cause) {
@@ -482,7 +490,7 @@ export function UrlCheckPage({ language }: { language: Language }) {
         },
         body: JSON.stringify({ url, externalCheckConsent: consent, saveHistory }),
       });
-      const data = await response.json() as { result?: AnalysisResult; disclosure?: string; error?: string };
+      const data = await readAnalysisResponse<{ result?: AnalysisResult; disclosure?: string; error?: string }>(response);
       if (!response.ok || !data.result) throw new Error(data.error ?? label(language, 'error'));
       setResult(data.result);
       setDisclosure(data.disclosure ?? '');
