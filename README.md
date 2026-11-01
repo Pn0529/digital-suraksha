@@ -114,6 +114,8 @@ JSON request bodies are limited to 8 KB. The question and speech text have addit
 
 The repository includes a Render Blueprint in `render.yaml`. It builds the frontend and serves it with the Express API from one Node web service, uses Render's HTTPS URL, and stores SQLite under `/var/data` on a 1 GB persistent disk. The service is configured for the Singapore region and a paid Starter instance because Render persistent disks require a paid web service. Confirm current pricing and region availability in your Render account before creating it.
 
+If deploying only the frontend as a Render **Static Site**, set the publish directory to `dist` and add a **Rewrite** rule with source `/*` and destination `/index.html` in **Redirects/Rewrites**. This SPA fallback is required so direct visits and refreshes on `/reports` and other client-side routes resolve to the React app. The Report Centre's report and evidence data remain in the browser. A Static Site does not run the Express API, so account, analysis API, and speech features require the Node web service defined in `render.yaml`.
+
 1. Push this repository and branch to GitHub.
 2. In Render, choose **New → Blueprint**, connect `Pn0529/digital-suraksha`, and select the branch containing `render.yaml`.
 3. Review the service, region, compute plan, and persistent disk cost, then apply the Blueprint.
