@@ -1,0 +1,44 @@
+Create a professional 10–12 slide PowerPoint presentation based on the project Digital Suraksha.
+
+Project context:
+- Title: Digital Suraksha
+- Type: Community Service Project / civic-tech awareness portal
+- Domain: Cyber safety, digital financial literacy, scam prevention
+- Audience: Engineering college review / academic community service project evaluation
+- Department: Computer Science and Engineering
+- College: Sagi Rama Krishnam Raju Engineering College (Autonomous)
+- Academic Year: [2025–2026]
+- Semester: III B.Tech – I Semester
+- Faculty Guide: [Faculty Mentor Name]
+- Team Members: [Student Name 1], [Student Name 2], [Student Name 3] with roll numbers
+
+Project details to include:
+- Introduction to community problem: digital fraud, phishing, scam messages, UPI safety, trust in online financial transactions
+- Objectives and expected outcomes
+- Problem identification and justification
+- Methodology: project review, content analysis, bilingual content design, speech assistant, knowledge base, awareness materials
+- Activities performed: multilingual portal, voice-based assistant, downloadable posters/checklists, admin dashboard, awareness materials
+- Data analysis and findings: practical insights from project repository and verified evidence; include placeholders for authentic community survey results and field observations if not available
+- SDG mapping: SDG 4, SDG 8, SDG 9, SDG 11, SDG 16 with specific targets such as 4.4, 8.10, 9.c, 11.7, 16.6, and justification for each
+- Outcomes and social impact
+- Challenges and solutions
+- Individual contribution of team members
+- Conclusion and future scope
+- References and acknowledgements
+
+Important instructions:
+- Limit the presentation to 10–12 slides.
+- Use a clean, professional academic design.
+- Use simple, readable fonts and consistent slide layouts.
+- Include authentic photographs, survey data, and supporting evidence only if available; otherwise use editable placeholders such as [INSERT PHOTO HERE] and [INSERT SURVEY DATA HERE].
+- Do not invent community data, survey findings, certificates, signatures, or participant counts.
+- Keep all claims realistic and evidence-based.
+- Add a title slide and a closing conclusion slide.
+- Include one slide for SDG mapping with a clear explanation.
+- Include one slide for team member contribution.
+- Ensure the presentation reads like a proper CSP/CSI academic project presentation.
+
+Output format:
+- Provide the final slide-by-slide deck content in a polished, ready-to-use PowerPoint outline.
+- Add clear speaker notes or bullet content for each slide.
+- Keep the wording concise, formal, and suitable for a college-level project review.

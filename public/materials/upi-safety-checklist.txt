@@ -1,0 +1,8 @@
+UPI Safety Checklist
+
+- Confirm the beneficiary name before each transaction.
+- Check if the app is official and updated.
+- Do not share OTP or UPI PIN under any circumstances.
+- If the request is urgent or unexpected, pause and verify.
+- Save the transaction ID and take a screenshot.
+- Contact your bank if you suspect fraud.
