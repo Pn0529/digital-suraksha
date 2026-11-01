@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: digital-suraksha
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    disk:
+      name: digital-suraksha-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DIGITAL_SURAKSHA_DB_PATH
+        value: /var/data/digital-suraksha.sqlite

@@ -49,7 +49,7 @@ Digital Suraksha is a mobile-first civic-tech portal designed to help citizens u
 npm install
 ```
 
-Use Node.js 22.13 or newer. The backend uses Node's built-in `node:sqlite`; that API is still marked experimental by Node.js and may emit an experimental warning.
+Use Node.js 22.13 through 24.x. The backend uses Node's built-in `node:sqlite`; that API is still marked experimental by Node.js and may emit an experimental warning.
 
 Copy `.env.example` to `.env` and edit the values for your environment. `.env` is ignored by Git:
 
@@ -109,6 +109,20 @@ The app runs at:
 | `POST` | `/api/assistant/speech` | Accepts `{ "text": "...", "language": "en" }`, `"te"`, or `"hi"` and returns MP3 audio. Requires Google Cloud credentials and is limited to 20 requests per IP per 15 minutes. |
 
 JSON request bodies are limited to 8 KB. The question and speech text have additional UTF-8 byte limits. Invalid JSON and unknown API paths return JSON errors. CORS is restricted to configured frontend origins. When deployed behind a reverse proxy, configure the proxy and rate-limit client IP handling appropriately.
+
+## Deploying publicly on Render
+
+The repository includes a Render Blueprint in `render.yaml`. It builds the frontend and serves it with the Express API from one Node web service, uses Render's HTTPS URL, and stores SQLite under `/var/data` on a 1 GB persistent disk. The service is configured for the Singapore region and a paid Starter instance because Render persistent disks require a paid web service. Confirm current pricing and region availability in your Render account before creating it.
+
+1. Push this repository and branch to GitHub.
+2. In Render, choose **New → Blueprint**, connect `Pn0529/digital-suraksha`, and select the branch containing `render.yaml`.
+3. Review the service, region, compute plan, and persistent disk cost, then apply the Blueprint.
+4. Wait for the first deploy to finish. Render's assigned `RENDER_EXTERNAL_URL` is used as the allowed browser origin by default. If you add a custom domain, set `FRONTEND_ORIGINS` in the Render service environment to a comma-separated list containing the exact HTTPS origin(s), for example `https://your-domain.example,https://digital-suraksha.onrender.com`, and redeploy.
+5. Test `/api/health`, registration/sign-in, message and URL checks, and account deletion on the public URL. Use only non-sensitive test data until the application has had a security review.
+
+Do not remove the persistent disk or change `DIGITAL_SURAKSHA_DB_PATH` after users create accounts unless you have backed up and intentionally migrated the database. A disk-backed Render service runs as a single instance, and deploys can cause a short interruption. Google Safe Browsing and Google Cloud Text-to-Speech are optional: configure their keys/credentials as Render secrets only if you intend to use those external services. Never put secrets in `render.yaml` or Git.
+
+This deployment configuration does not make the application production-certified. Accounts do not have email verification, password recovery, or MFA; analysis results are heuristic; and reports/evidence remain local to each browser. Do not collect highly sensitive information or represent the service as an official emergency or law-enforcement reporting service.
 
 ## Production build
 

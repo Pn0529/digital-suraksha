@@ -181,7 +181,7 @@ export function createApp({
   textToSpeechClient = new TextToSpeechClient(),
   frontendOrigins = process.env.FRONTEND_ORIGINS
     ? process.env.FRONTEND_ORIGINS.split(',').map((origin) => origin.trim()).filter((origin) => origin !== '*')
-    : process.env.NODE_ENV === 'production' ? [] : defaultFrontendOrigins,
+    : process.env.RENDER_EXTERNAL_URL ? [process.env.RENDER_EXTERNAL_URL] : process.env.NODE_ENV === 'production' ? [] : defaultFrontendOrigins,
   queryLimit = 30,
   speechLimit = 20,
   analysisLimit = 20,
@@ -196,6 +196,7 @@ export function createApp({
   }
 
   const app = express();
+  if (process.env.RENDER === 'true') app.set('trust proxy', 1);
   const allowedOrigins = new Set(frontendOrigins);
   const queryRateLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
