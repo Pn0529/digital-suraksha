@@ -16,6 +16,8 @@ dist-ssr
 !.env.example
 *service-account*.json
 .secrets/
+data/*.sqlite
+data/*.sqlite-*
 
 # Editor directories and files
 .vscode/*

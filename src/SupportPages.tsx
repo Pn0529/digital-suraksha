@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowDownToLine, ExternalLink, ShieldAlert, ShieldCheck, Trash2, Volume2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
   deleteIncident,
   getEvidence,
@@ -13,7 +14,7 @@ import {
   type ReportingStatus,
 } from './reportStorage';
 
-export type Language = 'en' | 'te';
+export type Language = 'en' | 'te' | 'hi';
 
 const portalUrl = 'https://cybercrime.gov.in/';
 const createReference = () => `DS-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${crypto.randomUUID().toUpperCase()}`;
@@ -47,7 +48,7 @@ const familyActions = [
   { en: 'Make sure children know a trusted adult they can contact about online harassment.', te: 'ఆన్‌లైన్ వేధింపుల గురించి పిల్లలు సంప్రదించగల నమ్మకమైన పెద్దవారు ఎవరో వారికి తెలియజేయండి.' },
 ];
 
-const text = (value: { en: string; te: string }, language: Language) => value[language];
+const text = (value: { en: string; te: string; hi?: string }, language: Language) => value[language] ?? value.en;
 const formatBytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 
 function readAssessmentProgress(): { done: Record<string, boolean>; score: number | null; error: string } {
@@ -96,6 +97,22 @@ export function AssessmentPage({ language }: { language: Language }) {
   const [done, setDone] = useState(storedProgress.done);
   const [savedScore, setSavedScore] = useState<number | null>(storedProgress.score);
   const [saveError, setSaveError] = useState(storedProgress.error);
+  const [accountSession, setAccountSession] = useState<{ csrfToken: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetch('/api/auth/me', { credentials: 'include' }).then(async (response) => {
+      if (response.status === 401) return null;
+      const data = await response.json() as { csrfToken?: string; error?: string };
+      if (!response.ok || !data.csrfToken) throw new Error(data.error ?? 'Could not load account session');
+      return { csrfToken: data.csrfToken };
+    }).then((session) => {
+      if (active) setAccountSession(session);
+    }).catch((cause: unknown) => {
+      if (active) setSaveError(cause instanceof Error ? cause.message : 'Could not load account session');
+    });
+    return () => { active = false; };
+  }, []);
 
   const answeredCount = Object.keys(answers).length;
   const score = Math.round((Object.values(answers).filter(Boolean).length / assessmentItems.length) * 100);
@@ -108,13 +125,23 @@ export function AssessmentPage({ language }: { language: Language }) {
       setSaveError(language === 'te' ? 'ఈ పరికరంలో పురోగతిని భద్రపరచలేకపోయాం.' : 'Progress could not be saved on this device.');
     }
   };
-  const completeAssessment = () => {
+  const completeAssessment = async () => {
     try {
       localStorage.setItem('ds-assessment-score', String(score));
+      if (accountSession) {
+        const response = await fetch('/api/assessments', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': accountSession.csrfToken },
+          body: JSON.stringify({ answers }),
+        });
+        const data = await response.json() as { error?: string };
+        if (!response.ok) throw new Error(data.error ?? 'The assessment could not be saved to your private account.');
+      }
       setSavedScore(score);
       setSaveError('');
-    } catch {
-      setSaveError(language === 'te' ? 'మూల్యాంకనాన్ని భద్రపరచలేకపోయాం.' : 'The assessment could not be saved.');
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : language === 'te' ? 'మూల్యాంకనాన్ని భద్రపరచలేకపోయాం.' : 'The assessment could not be saved.');
     }
   };
 
@@ -154,6 +181,7 @@ export function AssessmentPage({ language }: { language: Language }) {
               </div>
               <p className="mt-3 text-xs leading-5 text-slate-500">{language === 'te' ? 'ప్రతి “అవును” సమాధానానికి 12.5 పాయింట్లు. ఇది మార్గదర్శక సూచిక మాత్రమే; భద్రతా ధృవీకరణ కాదు.' : 'Each “Yes” contributes 12.5 points. This is a guidance indicator, not a security certification.'}</p>
               <button onClick={completeAssessment} type="button" className="mt-4 w-full rounded-full bg-brand-700 px-4 py-3 font-semibold text-white hover:bg-brand-800">{language === 'te' ? 'మూల్యాంకనాన్ని భద్రపరచండి' : 'Save assessment'}</button>
+              <p className="mt-2 text-xs leading-5 text-slate-500">{accountSession ? (language === 'te' ? 'ఈ స్కోరు మీ పరికరంలో మరియు ప్రైవేట్ ఖాతాలో భద్రపరచబడుతుంది.' : language === 'hi' ? 'यह स्कोर आपके डिवाइस और निजी खाते में सहेजा जाएगा।' : 'This score will be saved on this device and to your private account.') : (language === 'te' ? 'ప్రైవేట్ ఖాతాలో భద్రపరచడానికి ' : language === 'hi' ? 'निजी खाते में सहेजने के लिए ' : 'Sign in at ')}{!accountSession && <Link to="/account" className="font-semibold text-brand-800 underline">{language === 'te' ? 'ఖాతాకు వెళ్లండి' : language === 'hi' ? 'खाते में जाएँ' : 'your account'}</Link>}{!accountSession && (language === 'te' ? '.' : language === 'hi' ? '।' : '.')}</p>
             </>
           )}
           {savedScore !== null && <p className="mt-3 text-sm text-slate-600">{language === 'te' ? 'చివరి భద్రపరిచిన స్కోరు' : 'Last saved score'}: <strong>{savedScore}/100</strong></p>}

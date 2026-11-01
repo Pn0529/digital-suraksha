@@ -1,17 +1,21 @@
 # Digital Suraksha
 
-Digital Suraksha is a mobile-first civic-tech portal designed to help citizens understand cybercrime prevention, secure digital payments, and everyday financial literacy. It is built for English and Telugu audiences and includes a homepage, multilingual voice assistant, knowledge library, downloadable awareness materials, and a simple admin dashboard.
+Digital Suraksha is a mobile-first civic-tech portal designed to help citizens understand cybercrime prevention, secure digital payments, and everyday financial literacy. It includes a multilingual voice assistant, scam-message and URL analysis, payment-safety guidance, a knowledge library, and optional private accounts.
 
 ## Features
 
 - Responsive homepage and civic-style design system
-- English/Telugu language toggle
+- English, Telugu, and Hindi language toggle (some legacy assessment, reporting, and family content remains English/Telugu)
 - Voice assistant panel with browser speech recognition, typed questions, and server-generated text-to-speech output
 - Searchable knowledge base for common scam scenarios
 - Fraud awareness cards, safety tips, checklist, quiz, and case studies
 - Bilingual personal digital-security assessment with a transparent habit score, tailored actions, and local progress
 - Cyberbullying Report & Evidence Centre with private-on-device incident records, file validation, SHA-256 evidence hashes, and editable complaint summaries
 - Family safety checklist with progress tracking and browser speech where supported
+- Explainable local scam-message analysis and URL pattern checks; URL destinations are never visited
+- Optional Google Safe Browsing URL lookup, used only after explicit per-check consent
+- Optional accounts with hashed passwords, opaque expiring sessions, CSRF protection, per-user opt-in analysis history, assessment history, and payment checklist sync
+- Authenticated dashboard summarizing only the signed-in user's saved analysis and assessments
 - Official help centre with I4C reporting guidance, emergency steps, and public support links
 - Downloadable educational materials stored in the project
 - Admin dashboard mock workflow for content and publication status
@@ -22,6 +26,7 @@ Digital Suraksha is a mobile-first civic-tech portal designed to help citizens u
 - Tailwind CSS
 - React Router
 - Express API server
+- SQLite persistence through Node.js `node:sqlite`
 - Browser Web Speech API for speech recognition
 - Google Cloud Text-to-Speech for generated audio playback
 - Node.js built-in test runner for backend API tests
@@ -33,6 +38,8 @@ Digital Suraksha is a mobile-first civic-tech portal designed to help citizens u
 - `src/reportStorage.ts` — local IndexedDB storage and evidence-file validation/hash logic
 - `src/index.css` — Tailwind and global styling
 - `server/index.js` — local Express API and grounded answer logic
+- `server/securityAnalysis.js` — explainable local message and URL checks
+- `server/database.js` — versioned SQLite schema, persistence, and account-scoped dashboard queries
 - `public/materials/` — downloadable awareness files
 - `public/qrcodes/` — local demo QR asset
 
@@ -41,6 +48,8 @@ Digital Suraksha is a mobile-first civic-tech portal designed to help citizens u
 ```bash
 npm install
 ```
+
+Use Node.js 22.13 or newer. The backend uses Node's built-in `node:sqlite`; that API is still marked experimental by Node.js and may emit an experimental warning.
 
 Copy `.env.example` to `.env` and edit the values for your environment. `.env` is ignored by Git:
 
@@ -64,6 +73,8 @@ Set `GOOGLE_APPLICATION_CREDENTIALS` in `.env` (or in the server process environ
 
 For deployments, set `FRONTEND_ORIGINS` to a comma-separated list of exact trusted frontend origins, including the production site origin even when the frontend and API share a host. Production startup fails if this setting is missing. Development origins for Vite are allowed by default.
 
+The SQLite database defaults to `data/digital-suraksha.sqlite` (ignored by Git). Set `DIGITAL_SURAKSHA_DB_PATH` to an absolute path outside the repository when deploying or protecting user data. The database initializes its schema with a migration version; back up the database before deploying schema changes. `GOOGLE_SAFE_BROWSING_API_KEY` is optional and only used for URL checks after the user checks the explicit external-sharing consent box. A submitted URL is sent to Google only in that case.
+
 The app runs at:
 
 - Frontend: http://localhost:5173/
@@ -78,15 +89,24 @@ The app runs at:
 - Prepare and edit the complaint summary, save it locally, then use the official link to submit the report yourself. Update the acknowledgement/reference and status after submission. Digital Suraksha does not submit reports to I4C and does not display an automated-submission success message.
 - For financial cyber fraud in India, contact your bank promptly and call **1930**. Use the official [National Cyber Crime Reporting Portal](https://cybercrime.gov.in/) for reporting guidance and submission.
 - The `/family` checklist and assessment progress are stored in browser local storage. Browser speech is optional; the visible text remains available if voice support is unavailable.
+- Visit `/account` to optionally register or sign in. Passwords must be at least 12 characters. Saved account analyses contain result metadata and findings, not the original message text or submitted URL. Only results explicitly opted into from the message/URL check pages are stored. Use the dashboard on the account page to review account-scoped history; sign-out and account deletion are available there through the API.
+- Assessment scores are kept in the current browser and, when signed in, are also stored in the account after selecting **Save assessment**. The payment checklist stays local when signed out and syncs to the account when signed in.
 
 ## API
 
 | Method | Endpoint | Behavior |
 | --- | --- | --- |
 | `GET` | `/api/health` | Process health only; does not verify Google Cloud readiness. |
-| `GET` | `/api/knowledge-base` | Returns the locally maintained English/Telugu guidance entries. |
-| `POST` | `/api/assistant/query` | Accepts `{ "question": "...", "language": "en" }` or `"te"` and returns a grounded local answer or a safe fallback. Requests are limited to 30 per IP per 15 minutes. |
-| `POST` | `/api/assistant/speech` | Accepts `{ "text": "...", "language": "en" }` or `"te"` and returns MP3 audio. Requires Google Cloud credentials and is limited to 20 requests per IP per 15 minutes. |
+| `GET` | `/api/knowledge-base` | Returns the locally maintained English, Telugu, and Hindi guidance entries. |
+| `POST` | `/api/security/message/analyze` | Performs local explainable checks. Optional `saveHistory: true` requires an account session and CSRF token; message contents are never stored. |
+| `POST` | `/api/security/url/check` | Checks URL syntax and patterns without visiting the destination. Optional `externalCheckConsent: true` shares the URL with Google Safe Browsing if configured. Optional `saveHistory: true` stores result metadata only. |
+| `POST` | `/api/auth/register`, `/api/auth/login` | Creates or authenticates an account using a hashed password and sets an HttpOnly session cookie. |
+| `GET` | `/api/auth/me`, `/api/dashboard`, `/api/analysis-history`, `/api/assessments`, `/api/payment-checklist` | Returns only the authenticated user's account/session data. |
+| `POST` | `/api/auth/logout`, `/api/assessments` | Signs out or explicitly saves an assessment; state-changing authenticated requests require `x-csrf-token`. |
+| `DELETE` | `/api/auth/account` | Deletes the authenticated account and cascades its server-stored sessions, analyses, assessment history, and checklist. |
+| `PUT` | `/api/payment-checklist` | Saves ten boolean checklist values for the authenticated user; requires `x-csrf-token`. |
+| `POST` | `/api/assistant/query` | Accepts `{ "question": "...", "language": "en" }`, `"te"`, or `"hi"` and returns a grounded local answer or a safe fallback. Requests are limited to 30 per IP per 15 minutes. |
+| `POST` | `/api/assistant/speech` | Accepts `{ "text": "...", "language": "en" }`, `"te"`, or `"hi"` and returns MP3 audio. Requires Google Cloud credentials and is limited to 20 requests per IP per 15 minutes. |
 
 JSON request bodies are limited to 8 KB. The question and speech text have additional UTF-8 byte limits. Invalid JSON and unknown API paths return JSON errors. CORS is restricted to configured frontend origins. When deployed behind a reverse proxy, configure the proxy and rate-limit client IP handling appropriately.
 
@@ -103,7 +123,9 @@ npm run preview
 - Microphone input depends on browser support and microphone permissions. Spoken answers require valid Google Cloud credentials and Text-to-Speech API access on the server.
 - Speech recognition runs in the browser; speech synthesis runs on the server through Google Cloud. Spoken question text is sent to the local API for matching, and answer text is sent to Google Cloud when audio is requested.
 - The admin dashboard is a static demo. It has no authentication, authorization, content editing, audit logs, or persistent storage. Do not use it to manage real content or private reports.
-- The app does not currently have user accounts, a database, server-side incident APIs, server-side evidence storage, role-based access control, or encrypted report storage. Evidence is not available across devices or browser profiles. These features require a security-reviewed identity, storage, key-management, retention, and authorization design before deployment.
+- Account authentication and private history are implemented for the endpoints listed above, but this is not a production identity system: there is no email verification, password reset/recovery, MFA, configurable retention policy, or administrator role management. Use HTTPS, protect database backups and filesystem permissions, and complete an independent security review before production deployment.
+- Reports and evidence remain browser-local in IndexedDB and are not associated with an account, encrypted, or available across devices. The app does not upload report content or evidence. No automatic migration or export to the account database occurs.
+- Message/URL checks are heuristic indicators, not proof of fraud or safety. Newly observed scam patterns can be missed, and ordinary URLs may be suspicious for reasons these rules cannot detect. Safe Browsing results are optional external signals and a “no match” does not guarantee safety.
 - The knowledge base is manually maintained and is not a live authoritative feed. Unmatched questions receive a safe fallback rather than a guessed topic answer.
 - The production dependency audit (`npm audit --omit=dev`) is clean. The full audit still reports seven transitive advisories in the Tailwind CSS 3 build-tool dependency chain; the Tailwind 4 major migration was not applied because it needs separate compatibility work.
 - Configure HTTPS at the production edge. This repository has not been deployed or production-certified.

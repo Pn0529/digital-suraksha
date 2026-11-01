@@ -19,12 +19,14 @@ import {
   Wallet,
 } from 'lucide-react';
 import { AssessmentPage, FamilyPage, IncidentPage } from './SupportPages';
+import { AccountPage, MessageAnalysisPage, PaymentSafetyPage, UrlCheckPage } from './SafetyTools';
 
-export type Language = 'en' | 'te';
+export type Language = 'en' | 'te' | 'hi';
 
 type LocalizedText = {
   en: string;
   te: string;
+  hi?: string;
 };
 
 type HistoryItem = {
@@ -43,10 +45,10 @@ const getStoredLanguage = (): Language => {
   }
 
   const saved = window.localStorage.getItem('digital-suraksha-language');
-  return saved === 'te' ? 'te' : 'en';
+  return saved === 'te' || saved === 'hi' ? saved : 'en';
 };
 
-const t = (value: LocalizedText, language: Language) => value[language];
+const t = (value: LocalizedText, language: Language) => value[language] ?? value.en;
 
 const fraudCategories = [
   {
@@ -411,7 +413,7 @@ function VoiceAssistantPanel({ language }: { language: Language }) {
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.lang = language === 'te' ? 'te-IN' : 'en-IN';
+    recognition.lang = language === 'te' ? 'te-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
 
     recognition.onresult = (event: SpeechRecognitionEventLike) => {
       const latestText = event.results[0]?.[0]?.transcript?.trim();
@@ -509,7 +511,7 @@ function VoiceAssistantPanel({ language }: { language: Language }) {
 
     setState('listening');
     setError('');
-    recognitionRef.current.lang = language === 'te' ? 'te-IN' : 'en-IN';
+    recognitionRef.current.lang = language === 'te' ? 'te-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
     try {
       recognitionRef.current.start();
     } catch {
@@ -805,6 +807,9 @@ function HomePage({ language }: { language: Language }) {
             { to: '/help', icon: ShieldAlert, title: { en: 'Cybercrime Assistance', te: 'సైబర్ క్రైమ్ సహాయం' }, description: { en: 'Find urgent steps, 1930, and official reporting guidance.', te: 'అత్యవసర చర్యలు, 1930, అధికారిక నివేదిక మార్గదర్శకాలు.' } },
             { to: '/family', icon: Users, title: { en: 'Family Digital Safety', te: 'కుటుంబ డిజిటల్ భద్రత' }, description: { en: 'Use a guided checklist together, in English or Telugu.', te: 'ఇంగ్లీష్ లేదా తెలుగులో కుటుంబ చెక్‌లిస్ట్‌ను పూర్తి చేయండి.' } },
             { to: '/library', icon: BookOpen, title: { en: 'Cyber Awareness Library', te: 'సైబర్ అవగాహన గ్రంథాలయం' }, description: { en: 'Search simple bilingual safety information.', te: 'సులభమైన ద్విభాషా భద్రతా సమాచారాన్ని వెతకండి.' } },
+            { to: '/analyze', icon: ShieldAlert, title: { en: 'Scam Message Checker', te: 'మోస సందేశ తనిఖీ', hi: 'संदेश धोखाधड़ी जाँच' }, description: { en: 'Check messages using local, explainable safety rules.', te: 'స్థానిక, అర్థమయ్యే భద్రతా నియమాలతో సందేశాలను తనిఖీ చేయండి.', hi: 'समझाए जा सकने वाले स्थानीय सुरक्षा नियमों से संदेश जाँचें।' } },
+            { to: '/url-check', icon: Globe2, title: { en: 'Suspicious URL Checker', te: 'అనుమానాస్పద URL తనిఖీ', hi: 'संदिग्ध URL जाँच' }, description: { en: 'Check link patterns without opening the URL.', te: 'URLను తెరవకుండానే లింక్ నమూనాలను తనిఖీ చేయండి.', hi: 'URL खोले बिना लिंक के संकेत जाँचें।' } },
+            { to: '/payments', icon: CreditCard, title: { en: 'UPI Payment Safety', te: 'UPI చెల్లింపు భద్రత', hi: 'UPI भुगतान सुरक्षा' }, description: { en: 'Review a practical checklist before paying.', te: 'చెల్లింపుకు ముందు ఉపయోగకరమైన చెక్‌లిస్ట్‌ను చూడండి.', hi: 'भुगतान से पहले सुरक्षा सूची देखें।' } },
           ].map(({ to, icon: Icon, title, description }) => (
             <NavLink key={title.en} to={to} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand-300 hover:bg-brand-50">
               <Icon className="h-5 w-5 text-brand-700" />
@@ -1281,7 +1286,7 @@ function App() {
 
   useEffect(() => {
     window.localStorage.setItem('digital-suraksha-language', language);
-    document.documentElement.lang = language === 'te' ? 'te' : 'en';
+    document.documentElement.lang = language;
   }, [language]);
 
   return (
@@ -1295,17 +1300,29 @@ function App() {
             </NavLink>
             <nav aria-label={language === 'te' ? 'ప్రధాన నావిగేషన్' : 'Main navigation'} className="order-3 flex w-full gap-2 overflow-x-auto pb-1 text-sm font-semibold text-slate-700 sm:order-2 sm:w-auto sm:flex-1 sm:justify-center">
               {[
-                ['/', language === 'te' ? 'హోమ్' : 'Home'],
-                ['/assessment', language === 'te' ? 'అంచనా' : 'Assessment'],
-                ['/reports', language === 'te' ? 'నివేదిక కేంద్రం' : 'Report centre'],
-                ['/help', language === 'te' ? 'సహాయం' : 'Help'],
-                ['/family', language === 'te' ? 'కుటుంబం' : 'Family'],
-                ['/library', language === 'te' ? 'లైబ్రరీ' : 'Library'],
-                ['/assistant', language === 'te' ? 'సహాయకుడు' : 'Assistant'],
-                ['/admin', language === 'te' ? 'నిర్వాహకుడు' : 'Admin'],
+                ['/', language === 'te' ? 'హోమ్' : language === 'hi' ? 'होम' : 'Home'],
+                ['/assessment', language === 'te' ? 'అంచనా' : language === 'hi' ? 'आकलन' : 'Assessment'],
+                ['/reports', language === 'te' ? 'నివేదిక కేంద్రం' : language === 'hi' ? 'रिपोर्ट केंद्र' : 'Report centre'],
+                ['/help', language === 'te' ? 'సహాయం' : language === 'hi' ? 'सहायता' : 'Help'],
+                ['/family', language === 'te' ? 'కుటుంబం' : language === 'hi' ? 'परिवार' : 'Family'],
+                ['/library', language === 'te' ? 'లైబ్రరీ' : language === 'hi' ? 'लाइब्रेरी' : 'Library'],
+                ['/assistant', language === 'te' ? 'సహాయకుడు' : language === 'hi' ? 'सहायक' : 'Assistant'],
+                ['/analyze', language === 'te' ? 'సందేశ తనిఖీ' : language === 'hi' ? 'संदेश जाँच' : 'Message check'],
+                ['/url-check', language === 'te' ? 'URL తనిఖీ' : language === 'hi' ? 'URL जाँच' : 'URL check'],
+                ['/payments', language === 'te' ? 'చెల్లింపు' : language === 'hi' ? 'भुगतान' : 'Payments'],
+                ['/account', language === 'te' ? 'ఖాతా' : language === 'hi' ? 'खाता' : 'Account'],
+                ['/admin', language === 'te' ? 'నిర్వాహకుడు' : language === 'hi' ? 'व्यवस्थापक' : 'Admin'],
               ].map(([to, label]) => <NavLink key={to} to={to} className={({ isActive }) => `whitespace-nowrap rounded-full px-3 py-2 hover:bg-brand-50 hover:text-brand-800 ${isActive ? 'bg-brand-50 text-brand-800' : ''}`}>{label}</NavLink>)}
             </nav>
             <div className="order-2 flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 sm:order-3">
+            <button
+              type="button"
+              onClick={() => setLanguage('hi')}
+              aria-pressed={language === 'hi'}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${language === 'hi' ? 'bg-brand-600 text-white' : 'text-slate-600'}`}
+            >
+              हिं
+            </button>
             <button
               type="button"
               onClick={() => setLanguage('en')}
@@ -1331,6 +1348,10 @@ function App() {
           <Route path="/assessment" element={<AssessmentPage language={language} />} />
           <Route path="/reports" element={<IncidentPage language={language} />} />
           <Route path="/family" element={<FamilyPage language={language} />} />
+          <Route path="/analyze" element={<MessageAnalysisPage language={language} />} />
+          <Route path="/url-check" element={<UrlCheckPage language={language} />} />
+          <Route path="/payments" element={<PaymentSafetyPage language={language} />} />
+          <Route path="/account" element={<AccountPage language={language} />} />
           <Route path="/library" element={<LibraryPage language={language} />} />
           <Route path="/assistant" element={<div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8"><VoiceAssistantPanel language={language} /></div>} />
           <Route path="/help" element={<HelpPage language={language} />} />

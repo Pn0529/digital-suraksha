@@ -5,56 +5,74 @@ import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import helmet from 'helmet';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+import { analyzeMessage, analyzeUrl } from './securityAnalysis.js';
+import { getDashboard, openDatabase, saveAnalysis } from './database.js';
 
 const port = Number(process.env.PORT || 4000);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, '../dist');
+const scryptAsync = promisify(scrypt);
+const sessionCookieName = 'digital_suraksha_session';
+const sessionLifetimeMs = 8 * 60 * 60 * 1000;
+const assessmentQuestionIds = new Set(['passwords', 'mfa', 'recovery', 'device-lock', 'permissions', 'privacy', 'updates', 'login-alerts']);
 
 const knowledgeBase = [
   {
     id: 'upi-safety',
     keywords: ['upi', 'payment', 'pin', 'otp', 'cvv', 'transaction', 'banking'],
     keywordsTe: ['చెల్లింపు', 'పిన్', 'లావాదేవీ', 'బ్యాంక్', 'యుపిఐ', 'యూపీఐ', 'మోసం'],
+    keywordsHi: ['भुगतान', 'पिन', 'लेनदेन', 'बैंक', 'यूपीआई', 'ओटीपी', 'धोखाधड़ी'],
     answer: {
       en: 'Never share your UPI PIN, OTP, or card CVV with anyone. Always verify the payment request before approving it and confirm the receiver name before paying. If a caller or message asks for urgent payment, pause, verify, and call your bank directly.',
-      te: 'UPI PIN, OTP లేదా CVV మీకు ఎవరితోనైనా పంచుకోకండి. చెల్లింపును అంగీకరిస్తే ముందుగా పంపిన వివరాలను పరిశీలించండి మరియు వాస్తవ స్వీకర్త పేరు నమోదు అయిందో చూసుకోండి. ఎవరైనా వెంటనే చెల్లింపుని కోరితే, ఆగండి, ధృవీకరించండి, బ్యాంక్‌ను నేరుగా కాల్ చేయండి.'
+      te: 'UPI PIN, OTP లేదా CVV మీకు ఎవరితోనైనా పంచుకోకండి. చెల్లింపును అంగీకరిస్తే ముందుగా పంపిన వివరాలను పరిశీలించండి మరియు వాస్తవ స్వీకర్త పేరు నమోదు అయిందో చూసుకోండి. ఎవరైనా వెంటనే చెల్లింపుని కోరితే, ఆగండి, ధృవీకరించండి, బ్యాంక్‌ను నేరుగా కాల్ చేయండి.',
+      hi: 'अपना UPI PIN, OTP या कार्ड CVV किसी के साथ साझा न करें। भुगतान स्वीकार करने से पहले अनुरोध और प्राप्तकर्ता का नाम जाँचें। कोई तुरंत भुगतान के लिए कहे तो रुकें, पुष्टि करें और बैंक को सीधे कॉल करें।'
     }
   },
   {
     id: 'phishing',
     keywords: ['link', 'phishing', 'fake website', 'website', 'sms'],
     keywordsTe: ['లింక్', 'ఫిషింగ్', 'నకిలీ లింక్', 'వెబ్‌సైట్', 'sms'],
+    keywordsHi: ['लिंक', 'फिशिंग', 'नकली वेबसाइट', 'वेबसाइट', 'एसएमएस'],
     answer: {
       en: 'Carefully check the website address before entering login details. Fake messages often use urgent language, shortened links, or lookalike domains. Do not click unknown links, and verify the official app or website from a trusted source.',
-      te: 'లాగిన్ వివరాలను నమోదు చేయడానికి ముందుగా వెబ్సైట్ చిరునామాను పరిశీలించండి. చెడ్డ సందేశాలు అత్యవసర భాష, చిన్న చేసిన లింకులు లేదా పోలిక వున్న డొమైన్లను ఉపయోగిస్తాయి. తెలియని లింకులను నొక్కవద్దు. అధికారిక యాప్ లేదా వెబ్సైట్‌ను సురక్షిత వనరునుంచి ధృవీకరించండి.'
+      te: 'లాగిన్ వివరాలను నమోదు చేయడానికి ముందుగా వెబ్సైట్ చిరునామాను పరిశీలించండి. చెడ్డ సందేశాలు అత్యవసర భాష, చిన్న చేసిన లింకులు లేదా పోలిక వున్న డొమైన్లను ఉపయోగిస్తాయి. తెలియని లింకులను నొక్కవద్దు. అధికారిక యాప్ లేదా వెబ్సైట్‌ను సురక్షిత వనరునుంచి ధృవీకరించండి.',
+      hi: 'लॉगिन जानकारी डालने से पहले वेबसाइट का पता ध्यान से जाँचें। नकली संदेश जल्दबाज़ी, छोटे लिंक या मिलते-जुलते डोमेन का उपयोग कर सकते हैं। अनजान लिंक न खोलें और आधिकारिक ऐप या वेबसाइट की पुष्टि करें।'
     }
   },
   {
     id: 'job-scam',
     keywords: ['job scam', 'work from home', 'salary', 'job offer', 'recruitment fee'],
     keywordsTe: ['ఉద్యోగ మోసం', 'వర్క్ ఫ్రమ్ హోమ్', 'జీతం', 'ఉద్యోగ ఆఫర్', 'రిజిస్ట్రేషన్ ఫీజు'],
+    keywordsHi: ['नौकरी धोखाधड़ी', 'घर से काम', 'वेतन', 'नौकरी का प्रस्ताव', 'भर्ती शुल्क'],
     answer: {
       en: 'A real job offer will not ask you to pay a fee, share OTPs, or complete a payment before the work starts. Be careful with “easy money” promises and verify the employer through official company channels.',
-      te: 'నిజమైన ఉద్యోగ ఆఫర్ మీకు ఫీజు చెల్లించమని, OTPలను పంచుకోమని, పనులు ప్రారంభమయ్యేదాకా ముందుగానే చెల్లింపు చేయమని అడగదు. “సులభమైన సంపాదన” వాగ్దానాలపై జాగ్రత్త వహించండి మరియు కంపెనీ అధికారిక ఛానెళ్ల ద్వారా నియామకాన్ని ధృవీకరించండి.'
+      te: 'నిజమైన ఉద్యోగ ఆఫర్ మీకు ఫీజు చెల్లించమని, OTPలను పంచుకోమని, పనులు ప్రారంభమయ్యేదాకా ముందుగానే చెల్లింపు చేయమని అడగదు. “సులభమైన సంపాదన” వాగ్దానాలపై జాగ్రత్త వహించండి మరియు కంపెనీ అధికారిక ఛానెళ్ల ద్వారా నియామకాన్ని ధృవీకరించండి.',
+      hi: 'असली नौकरी का प्रस्ताव पहले शुल्क, OTP साझा करने या काम शुरू होने से पहले भुगतान की मांग नहीं करता। आसान कमाई के वादों से सावधान रहें और कंपनी के आधिकारिक माध्यम से नौकरी की पुष्टि करें।'
     }
   },
   {
     id: 'report-fraud',
     keywords: ['report fraud', 'report scam', 'fraudulent message', 'cybercrime', '1930', 'complaint'],
     keywordsTe: ['నివేదించ', 'ఫిర్యాదు', 'సైబర్ క్రైమ్'],
+    keywordsHi: ['रिपोर्ट', 'शिकायत', 'साइबर अपराध', '1930', 'धोखाधड़ी'],
     answer: {
       en: 'If you suspect cyber fraud, report it immediately to your bank and the National Cyber Crime Reporting Portal. In India, the financial fraud helpline is 1930, and you should also save screenshots of the scam message and payment details.',
-      te: 'సైబర్ మోసం అనుమానంగా ఉంటే, బ్యాంక్‌కు వెంటనే తెలియజేయండి మరియు జాతీయ సైబర్ క్రైమ్ రిపోర్టింగ్ పోర్టల్‌లో నివేదించండి. ఇండియాలో మొత్తం మోసానికి 1930 హెల్ప్‌లైన్ ఉంది. స్కామ్ సందేశం, చెల్లింపు వివరాల స్క్రీన్ షాట్లు నిల్వ చేయండి.'
+      te: 'సైబర్ మోసం అనుమానంగా ఉంటే, బ్యాంక్‌కు వెంటనే తెలియజేయండి మరియు జాతీయ సైబర్ క్రైమ్ రిపోర్టింగ్ పోర్టల్‌లో నివేదించండి. ఇండియాలో మొత్తం మోసానికి 1930 హెల్ప్‌లైన్ ఉంది. స్కామ్ సందేశం, చెల్లింపు వివరాల స్క్రీన్ షాట్లు నిల్వ చేయండి.',
+      hi: 'साइबर धोखाधड़ी का संदेह हो तो बैंक को तुरंत सूचित करें और राष्ट्रीय साइबर अपराध रिपोर्टिंग पोर्टल पर शिकायत करें। भारत में वित्तीय साइबर धोखाधड़ी के लिए 1930 पर कॉल करें। संदेश और भुगतान विवरण सुरक्षित रखें।'
     }
   },
   {
     id: 'digital-arrest',
     keywords: ['digital arrest', 'police', 'threat', 'video call', 'impersonation'],
     keywordsTe: ['డిజిటల్ అరెస్ట్', 'పోలీసు', 'బెదిరింపు', 'వీడియో కాల్'],
+    keywordsHi: ['डिजिटल अरेस्ट', 'पुलिस', 'धमकी', 'वीडियो कॉल'],
     answer: {
       en: 'No genuine officer will demand immediate payment, remote access to your phone, or your UPI PIN/OTP under threat or pressure. Stay calm, end the call, and verify the claim through the official office or police helpline.',
-      te: 'నిజమైన అధికారులు ఎప్పుడూ వెంటనే చెల్లింపు, ఫోన్‌ను దూరస్థితిలో ఆన్ చేయించుకోవడం, UPI PIN/OTPలు భయపెట్టినపుడు అడగరు. ప్రశాంతంగా ఉండండి, కాల్‌ను ముగించండి, అధికారిక కార్యాలయం లేదా పోలీసు హెల్ప్‌లైన్ ద్వారా ధృవీకరించండి.'
+      te: 'నిజమైన అధికారులు ఎప్పుడూ వెంటనే చెల్లింపు, ఫోన్‌ను దూరస్థితిలో ఆన్ చేయించుకోవడం, UPI PIN/OTPలు భయపెట్టినపుడు అడగరు. ప్రశాంతంగా ఉండండి, కాల్‌ను ముగించండి, అధికారిక కార్యాలయం లేదా పోలీసు హెల్ప్‌లైన్ ద్వారా ధృవీకరించండి.',
+      hi: 'कोई असली अधिकारी धमकी देकर तुरंत भुगतान, फोन का दूरस्थ नियंत्रण, UPI PIN या OTP नहीं मांगेगा। शांत रहें, कॉल समाप्त करें और आधिकारिक कार्यालय या पुलिस से स्वतंत्र रूप से पुष्टि करें।'
     }
   }
 ];
@@ -74,13 +92,103 @@ function hasOnlyFields(value, allowedFields) {
   return isObject(value) && Object.keys(value).every((key) => allowedFields.includes(key));
 }
 
+function hashSessionToken(token) {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function getCookie(req, name) {
+  const cookies = req.headers.cookie?.split(';') ?? [];
+  for (const cookie of cookies) {
+    const separator = cookie.indexOf('=');
+    if (separator > 0 && cookie.slice(0, separator).trim() === name) {
+      return cookie.slice(separator + 1).trim();
+    }
+  }
+  return null;
+}
+
+function createSession(database, userId) {
+  const token = randomBytes(32).toString('base64url');
+  const csrfToken = randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + sessionLifetimeMs).toISOString();
+  database.prepare('INSERT INTO sessions (token_hash, csrf_token, user_id, expires_at) VALUES (?, ?, ?, ?)')
+    .run(hashSessionToken(token), csrfToken, userId, expiresAt);
+  return { token, csrfToken, expiresAt };
+}
+
+function setSessionCookie(res, token) {
+  const attributes = [
+    `${sessionCookieName}=${token}`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/',
+    `Max-Age=${Math.floor(sessionLifetimeMs / 1000)}`,
+  ];
+  if (process.env.NODE_ENV === 'production') attributes.push('Secure');
+  res.setHeader('Set-Cookie', attributes.join('; '));
+}
+
+function clearSessionCookie(res) {
+  const attributes = [`${sessionCookieName}=`, 'HttpOnly', 'SameSite=Strict', 'Path=/', 'Max-Age=0'];
+  if (process.env.NODE_ENV === 'production') attributes.push('Secure');
+  res.setHeader('Set-Cookie', attributes.join('; '));
+}
+
+function resolveSession(database, req) {
+  const token = getCookie(req, sessionCookieName);
+  if (!token || token.length > 128) return null;
+  const session = database.prepare(`
+    SELECT sessions.token_hash AS tokenHash, sessions.csrf_token AS csrfToken,
+      sessions.expires_at AS expiresAt, users.id AS userId, users.email AS email,
+      users.created_at AS createdAt
+    FROM sessions JOIN users ON users.id = sessions.user_id
+    WHERE sessions.token_hash = ?
+  `).get(hashSessionToken(token));
+  if (!session) return null;
+  if (Date.parse(session.expiresAt) <= Date.now()) {
+    database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(session.tokenHash);
+    return null;
+  }
+  return session;
+}
+
+function validCsrfToken(supplied, expected) {
+  if (!supplied || supplied.length > 128) return false;
+  const suppliedBuffer = Buffer.from(supplied);
+  const expectedBuffer = Buffer.from(expected);
+  return suppliedBuffer.length === expectedBuffer.length && timingSafeEqual(suppliedBuffer, expectedBuffer);
+}
+
+function requireAuthentication(database) {
+  return (req, res, next) => {
+    const session = resolveSession(database, req);
+    if (!session) return res.status(401).json({ error: 'Authentication required' });
+    req.session = session;
+    return next();
+  };
+}
+
+function requireCsrf(req, res, next) {
+  const supplied = req.get('x-csrf-token');
+  if (!validCsrfToken(supplied, req.session.csrfToken)) {
+    return res.status(403).json({ error: 'A valid CSRF token is required' });
+  }
+  return next();
+}
+
 export function createApp({
+  database = openDatabase(),
   textToSpeechClient = new TextToSpeechClient(),
   frontendOrigins = process.env.FRONTEND_ORIGINS
     ? process.env.FRONTEND_ORIGINS.split(',').map((origin) => origin.trim()).filter((origin) => origin !== '*')
     : process.env.NODE_ENV === 'production' ? [] : defaultFrontendOrigins,
   queryLimit = 30,
   speechLimit = 20,
+  analysisLimit = 20,
+  urlCheckLimit = 20,
+  safeBrowsingApiKey = process.env.GOOGLE_SAFE_BROWSING_API_KEY,
+  externalFetch = globalThis.fetch,
+  clientDistPath = distPath,
   serveClient = process.env.NODE_ENV === 'production',
 } = {}) {
   if (process.env.NODE_ENV === 'production' && frontendOrigins.length === 0) {
@@ -101,6 +209,26 @@ export function createApp({
     standardHeaders: 'draft-8',
     legacyHeaders: false,
   });
+  const authenticationRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+  });
+  const analysisRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: analysisLimit,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+  });
+  const urlCheckRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: urlCheckLimit,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+  });
+  app.locals.database = database;
+  const requireAuth = requireAuthentication(database);
 
   app.disable('x-powered-by');
   app.use(helmet());
@@ -126,6 +254,299 @@ export function createApp({
     res.json({ items: knowledgeBase });
   });
 
+  app.post('/api/auth/register', authenticationRateLimit, async (req, res) => {
+    if (!hasOnlyFields(req.body, ['email', 'password'])) {
+      return res.status(400).json({ error: 'Request must contain only email and password fields' });
+    }
+    if (typeof req.body.email !== 'string' || typeof req.body.password !== 'string') {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    const email = req.body.email.trim().toLowerCase();
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Enter a valid email address' });
+    }
+    if (req.body.password.length < 12 || Buffer.byteLength(req.body.password, 'utf8') > 128) {
+      return res.status(400).json({ error: 'Password must be 12-128 UTF-8 bytes' });
+    }
+    if (database.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+      return res.status(409).json({ error: 'An account with this email already exists' });
+    }
+
+    try {
+      const id = randomUUID();
+      const salt = randomBytes(16).toString('hex');
+      const derived = await scryptAsync(req.body.password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+      const createdAt = new Date().toISOString();
+      database.prepare('INSERT INTO users (id, email, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(id, email, derived.toString('hex'), salt, createdAt);
+      const session = createSession(database, id);
+      setSessionCookie(res, session.token);
+      return res.status(201).json({
+        user: { id, email, createdAt },
+        csrfToken: session.csrfToken,
+        expiresAt: session.expiresAt,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed: users.email')) {
+        return res.status(409).json({ error: 'An account with this email already exists' });
+      }
+      console.error('Account registration failed', { name: error instanceof Error ? error.name : 'UnknownError' });
+      return res.status(500).json({ error: 'Could not create the account' });
+    }
+  });
+
+  app.post('/api/auth/login', authenticationRateLimit, async (req, res) => {
+    if (!hasOnlyFields(req.body, ['email', 'password']) || typeof req.body.email !== 'string' || typeof req.body.password !== 'string') {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    const email = req.body.email.trim().toLowerCase();
+    const user = database.prepare('SELECT id, email, password_hash AS passwordHash, password_salt AS passwordSalt, created_at AS createdAt FROM users WHERE email = ?')
+      .get(email);
+    if (!user || Buffer.byteLength(req.body.password, 'utf8') > 128) {
+      return res.status(401).json({ error: 'Email or password is incorrect' });
+    }
+    const derived = await scryptAsync(req.body.password, user.passwordSalt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+    const expected = Buffer.from(user.passwordHash, 'hex');
+    if (expected.length !== derived.length || !timingSafeEqual(expected, derived)) {
+      return res.status(401).json({ error: 'Email or password is incorrect' });
+    }
+    const session = createSession(database, user.id);
+    setSessionCookie(res, session.token);
+    return res.json({
+      user: { id: user.id, email: user.email, createdAt: user.createdAt },
+      csrfToken: session.csrfToken,
+      expiresAt: session.expiresAt,
+    });
+  });
+
+  app.get('/api/auth/me', requireAuth, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      user: { id: req.session.userId, email: req.session.email, createdAt: req.session.createdAt },
+      csrfToken: req.session.csrfToken,
+      expiresAt: req.session.expiresAt,
+    });
+  });
+
+  app.post('/api/auth/logout', requireAuth, requireCsrf, (req, res) => {
+    database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(req.session.tokenHash);
+    clearSessionCookie(res);
+    res.status(204).end();
+  });
+
+  app.delete('/api/auth/account', requireAuth, requireCsrf, (req, res) => {
+    database.prepare('DELETE FROM users WHERE id = ?').run(req.session.userId);
+    clearSessionCookie(res);
+    res.status(204).end();
+  });
+
+  app.get('/api/dashboard', requireAuth, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ dashboard: getDashboard(database, req.session.userId) });
+  });
+
+  app.get('/api/analysis-history', requireAuth, (req, res) => {
+    const kind = req.query.kind;
+    if (kind !== undefined && !['message', 'url'].includes(kind)) {
+      return res.status(400).json({ error: 'kind must be message or url' });
+    }
+    const rows = kind
+      ? database.prepare(`
+          SELECT id, kind, category, score, details_json AS detailsJson, created_at AS createdAt
+          FROM analyses WHERE user_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 100
+        `).all(req.session.userId, kind)
+      : database.prepare(`
+          SELECT id, kind, category, score, details_json AS detailsJson, created_at AS createdAt
+          FROM analyses WHERE user_id = ? ORDER BY created_at DESC LIMIT 100
+        `).all(req.session.userId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      items: rows.map((row) => {
+        const { detailsJson, ...item } = row;
+        return { ...item, ...JSON.parse(detailsJson) };
+      }),
+    });
+  });
+
+  app.get('/api/assessments', requireAuth, (req, res) => {
+    const items = database.prepare(`
+      SELECT id, score, answers_json AS answersJson, created_at AS createdAt
+      FROM assessments WHERE user_id = ? ORDER BY created_at DESC LIMIT 100
+    `).all(req.session.userId).map((item) => {
+      const { answersJson, ...assessment } = item;
+      return { ...assessment, answers: JSON.parse(answersJson) };
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ items });
+  });
+
+  app.post('/api/assessments', requireAuth, requireCsrf, (req, res) => {
+    if (!hasOnlyFields(req.body, ['answers']) || !isObject(req.body.answers)) {
+      return res.status(400).json({ error: 'Request must contain an answers object' });
+    }
+    const answerIds = Object.keys(req.body.answers);
+    if (answerIds.length !== assessmentQuestionIds.size
+      || answerIds.some((id) => !assessmentQuestionIds.has(id) || typeof req.body.answers[id] !== 'boolean')) {
+      return res.status(400).json({ error: 'All eight recognized assessment answers must be boolean values' });
+    }
+    const score = Math.round((answerIds.filter((id) => req.body.answers[id]).length / assessmentQuestionIds.size) * 100);
+    const id = randomUUID();
+    const createdAt = new Date().toISOString();
+    database.prepare('INSERT INTO assessments (id, user_id, score, answers_json, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, req.session.userId, score, JSON.stringify(req.body.answers), createdAt);
+    res.status(201).json({ assessment: { id, score, answers: req.body.answers, createdAt } });
+  });
+
+  app.get('/api/payment-checklist', requireAuth, (req, res) => {
+    const item = database.prepare('SELECT checks_json AS checksJson, updated_at AS updatedAt FROM payment_checklists WHERE user_id = ?')
+      .get(req.session.userId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ checks: item ? JSON.parse(item.checksJson) : Array(10).fill(false), updatedAt: item?.updatedAt ?? null });
+  });
+
+  app.put('/api/payment-checklist', requireAuth, requireCsrf, (req, res) => {
+    if (!hasOnlyFields(req.body, ['checks']) || !Array.isArray(req.body.checks)
+      || req.body.checks.length !== 10 || req.body.checks.some((value) => typeof value !== 'boolean')) {
+      return res.status(400).json({ error: 'checks must contain exactly ten boolean values' });
+    }
+    const updatedAt = new Date().toISOString();
+    database.prepare(`
+      INSERT INTO payment_checklists (user_id, checks_json, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET checks_json = excluded.checks_json, updated_at = excluded.updated_at
+    `).run(req.session.userId, JSON.stringify(req.body.checks), updatedAt);
+    res.json({ checks: req.body.checks, updatedAt });
+  });
+
+  app.post('/api/security/message/analyze', analysisRateLimit, (req, res) => {
+    if (!hasOnlyFields(req.body, ['message', 'language', 'saveHistory'])) {
+      return res.status(400).json({ error: 'Request must contain only message, language, and saveHistory fields' });
+    }
+    if (typeof req.body.message !== 'string' || !req.body.message.trim()) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+    if (Buffer.byteLength(req.body.message, 'utf8') > 4000) {
+      return res.status(400).json({ error: 'Message must be 4000 UTF-8 bytes or fewer' });
+    }
+    const language = req.body.language === undefined ? 'en' : req.body.language;
+    if (!['en', 'te', 'hi'].includes(language)) {
+      return res.status(400).json({ error: 'Language must be en, te, or hi' });
+    }
+    if (req.body.saveHistory !== undefined && typeof req.body.saveHistory !== 'boolean') {
+      return res.status(400).json({ error: 'saveHistory must be a boolean' });
+    }
+
+    const result = analyzeMessage(req.body.message, language);
+    let saved = false;
+    if (req.body.saveHistory) {
+      const session = resolveSession(database, req);
+      if (!session) return res.status(401).json({ error: 'Sign in to save analysis history' });
+      if (!validCsrfToken(req.get('x-csrf-token'), session.csrfToken)) {
+        return res.status(403).json({ error: 'A valid CSRF token is required' });
+      }
+      saveAnalysis(database, { id: randomUUID(), userId: session.userId, kind: 'message', result });
+      saved = true;
+    }
+    res.json({ result, storage: saved ? 'saved' : 'not-saved' });
+  });
+
+  app.post('/api/security/url/check', urlCheckRateLimit, async (req, res) => {
+    if (!hasOnlyFields(req.body, ['url', 'externalCheckConsent', 'saveHistory'])) {
+      return res.status(400).json({ error: 'Request must contain only url, externalCheckConsent, and saveHistory fields' });
+    }
+    if (typeof req.body.url !== 'string' || !req.body.url.trim() || Buffer.byteLength(req.body.url, 'utf8') > 2048) {
+      return res.status(400).json({ error: 'URL is required and must be 2048 UTF-8 bytes or fewer' });
+    }
+    if (req.body.externalCheckConsent !== undefined && typeof req.body.externalCheckConsent !== 'boolean') {
+      return res.status(400).json({ error: 'externalCheckConsent must be a boolean' });
+    }
+    if (req.body.saveHistory !== undefined && typeof req.body.saveHistory !== 'boolean') {
+      return res.status(400).json({ error: 'saveHistory must be a boolean' });
+    }
+
+    const result = analyzeUrl(req.body.url);
+    if (result.category === 'INCONCLUSIVE' && result.score === null) {
+      return res.json({ result, storage: 'not-saved' });
+    }
+
+    let externalCheckAttempted = false;
+    let externalResponseReceived = false;
+    if (req.body.externalCheckConsent && safeBrowsingApiKey) {
+      externalCheckAttempted = true;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const response = await externalFetch(
+          `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${encodeURIComponent(safeBrowsingApiKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              client: { clientId: 'digital-suraksha', clientVersion: '1.0.0' },
+              threatInfo: {
+                threatTypes: ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE', 'POTENTIALLY_HARMFUL_APPLICATION'],
+                platformTypes: ['ANY_PLATFORM'],
+                threatEntryTypes: ['URL'],
+                threatEntries: [{ url: req.body.url.trim() }],
+              },
+            }),
+          },
+        );
+        externalResponseReceived = true;
+        if (!response.ok) {
+          console.error('Safe Browsing provider returned an error', { status: response.status });
+          result.external = { status: 'unavailable' };
+        } else {
+          const matches = await response.json();
+          result.external = {
+            status: Array.isArray(matches.matches) && matches.matches.length ? 'match' : 'no-match',
+            threatTypes: Array.isArray(matches.matches)
+              ? matches.matches.map((match) => match.threatType).filter((type) => typeof type === 'string').slice(0, 5)
+              : [],
+          };
+          if (result.external.status === 'match') {
+            result.findings.push({
+              id: 'threat-intelligence-match',
+              severity: 'high',
+              explanation: 'Google Safe Browsing reported a threat match for this URL.',
+            });
+            result.score = Math.max(result.score ?? 0, 80);
+            result.category = 'HIGH RISK';
+          }
+        }
+      } catch {
+        console.error('Safe Browsing request failed', { reason: 'network_or_response_error' });
+        result.external = { status: 'unavailable' };
+      } finally {
+        clearTimeout(timeout);
+      }
+    } else if (req.body.externalCheckConsent) {
+      result.external = { status: 'not-configured' };
+    }
+
+    let saved = false;
+    if (req.body.saveHistory) {
+      const session = resolveSession(database, req);
+      if (!session) return res.status(401).json({ error: 'Sign in to save analysis history' });
+      if (!validCsrfToken(req.get('x-csrf-token'), session.csrfToken)) {
+        return res.status(403).json({ error: 'A valid CSRF token is required' });
+      }
+      saveAnalysis(database, { id: randomUUID(), userId: session.userId, kind: 'url', result });
+      saved = true;
+    }
+    res.json({
+      result,
+      disclosure: externalCheckAttempted
+        ? externalResponseReceived
+          ? 'The submitted URL was sent to Google Safe Browsing after your consent.'
+          : 'An external request was attempted after your consent; the submitted URL may have reached Google Safe Browsing.'
+        : req.body.externalCheckConsent
+          ? 'The submitted URL was checked locally; it was not sent to Google Safe Browsing because the service is not configured.'
+          : 'The submitted URL was checked locally and was not sent to an external service.',
+      storage: saved ? 'saved' : 'not-saved',
+    });
+  });
+
   app.post('/api/assistant/query', queryRateLimit, (req, res) => {
     if (!hasOnlyFields(req.body, ['question', 'language'])) {
       return res.status(400).json({ error: 'Request must contain only question and language fields' });
@@ -138,8 +559,8 @@ export function createApp({
     }
 
     const language = req.body.language === undefined ? 'en' : req.body.language;
-    if (language !== 'en' && language !== 'te') {
-      return res.status(400).json({ error: 'Language must be en or te' });
+    if (!['en', 'te', 'hi'].includes(language)) {
+      return res.status(400).json({ error: 'Language must be en, te, or hi' });
     }
 
     const lowered = req.body.question.trim().toLowerCase();
@@ -147,7 +568,7 @@ export function createApp({
     let bestScore = 0;
 
     for (const item of knowledgeBase) {
-      const keywords = language === 'te' ? item.keywordsTe : item.keywords;
+      const keywords = language === 'te' ? item.keywordsTe : language === 'hi' ? item.keywordsHi ?? [] : item.keywords;
       const score = keywords.reduce((total, keyword) => {
         return total + (lowered.includes(keyword.toLowerCase()) ? 1 : 0);
       }, 0);
@@ -162,13 +583,15 @@ export function createApp({
       ? bestMatch.answer[language]
       : language === 'te'
         ? 'ఈ ప్రశ్నకు మా స్థానిక మార్గదర్శకంలో సరిపడ సమాచారం లేదు. UPI భద్రత, ఫిషింగ్, ఉద్యోగ మోసాలు లేదా మోసాన్ని నివేదించడం గురించి అడగండి.'
-        : 'I could not find a sufficiently relevant answer in the local guide. Try asking about UPI safety, phishing, job scams, or reporting fraud.';
+        : language === 'hi'
+          ? 'स्थानीय मार्गदर्शिका में इस प्रश्न का पर्याप्त उत्तर नहीं मिला। UPI सुरक्षा, फ़िशिंग, नौकरी के घोटाले या धोखाधड़ी की रिपोर्ट के बारे में पूछें।'
+          : 'I could not find a sufficiently relevant answer in the local guide. Try asking about UPI safety, phishing, job scams, or reporting fraud.';
 
     res.json({
       answer,
       language,
       source: 'grounded knowledge base',
-      matches: bestMatch ? (language === 'te' ? bestMatch.keywordsTe : bestMatch.keywords) : [],
+      matches: bestMatch ? (language === 'te' ? bestMatch.keywordsTe : language === 'hi' ? bestMatch.keywordsHi ?? [] : bestMatch.keywords) : [],
       confidence: bestMatch ? 'medium' : 'fallback',
     });
   });
@@ -183,14 +606,14 @@ export function createApp({
     if (Buffer.byteLength(req.body.text, 'utf8') > 5000) {
       return res.status(400).json({ error: 'Text must be 5000 UTF-8 bytes or fewer' });
     }
-    if (req.body.language !== 'en' && req.body.language !== 'te') {
-      return res.status(400).json({ error: 'Language must be en or te' });
+    if (!['en', 'te', 'hi'].includes(req.body.language)) {
+      return res.status(400).json({ error: 'Language must be en, te, or hi' });
     }
 
     try {
       const [response] = await textToSpeechClient.synthesizeSpeech({
         input: { text: req.body.text.trim() },
-        voice: { languageCode: req.body.language === 'te' ? 'te-IN' : 'en-IN' },
+        voice: { languageCode: req.body.language === 'te' ? 'te-IN' : req.body.language === 'hi' ? 'hi-IN' : 'en-IN' },
         audioConfig: { audioEncoding: 'MP3' },
       }, { timeout: 15000 });
       const audio = Buffer.from(response.audioContent || []);
@@ -212,9 +635,9 @@ export function createApp({
   });
 
   if (serveClient) {
-    app.use(express.static(distPath));
+    app.use(express.static(clientDistPath));
     app.get('/{*splat}', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile(path.join(clientDistPath, 'index.html'));
     });
   }
 
@@ -238,7 +661,21 @@ export function createApp({
 
 if (process.env.NODE_ENV !== 'test') {
   const app = createApp();
-  app.listen(port, '0.0.0.0', () => {
+  const server = app.listen(port, '0.0.0.0', () => {
     console.log(`Digital Suraksha API listening on port ${port}`);
   });
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    server.close((error) => {
+      if (error) {
+        console.error('HTTP server shutdown failed', { name: error.name });
+        process.exitCode = 1;
+      }
+      app.locals.database.close();
+    });
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 }
