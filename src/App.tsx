@@ -1298,7 +1298,7 @@ function App() {
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-700 text-white"><ShieldCheck className="h-5 w-5" /></span>
               <span>Digital Suraksha</span>
             </NavLink>
-            <nav aria-label={language === 'te' ? 'ప్రధాన నావిగేషన్' : 'Main navigation'} className="order-3 flex w-full gap-2 overflow-x-auto pb-1 text-sm font-semibold text-slate-700 sm:order-2 sm:w-auto sm:flex-1 sm:justify-center">
+            <nav aria-label={language === 'te' ? 'ప్రధాన నావిగేషన్' : 'Main navigation'} className="order-3 flex w-full flex-wrap gap-2 pb-1 text-sm font-semibold text-slate-700 sm:order-3 sm:justify-center">
               {[
                 ['/', language === 'te' ? 'హోమ్' : language === 'hi' ? 'होम' : 'Home'],
                 ['/assessment', language === 'te' ? 'అంచనా' : language === 'hi' ? 'आकलन' : 'Assessment'],
@@ -1314,7 +1314,7 @@ function App() {
                 ['/admin', language === 'te' ? 'నిర్వాహకుడు' : language === 'hi' ? 'व्यवस्थापक' : 'Admin'],
               ].map(([to, label]) => <NavLink key={to} to={to} className={({ isActive }) => `whitespace-nowrap rounded-full px-3 py-2 hover:bg-brand-50 hover:text-brand-800 ${isActive ? 'bg-brand-50 text-brand-800' : ''}`}>{label}</NavLink>)}
             </nav>
-            <div className="order-2 flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 sm:order-3">
+            <div className="order-2 flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1">
             <button
               type="button"
               onClick={() => setLanguage('hi')}
